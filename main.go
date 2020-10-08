@@ -1,86 +1,40 @@
 package main
 
 import (
-	"html/template"
-	"io/ioutil"
+	"fmt"
+	"database/sql"
 	"log"
 	"net/http"
-	"regexp"
+
+	_ "github.com/lib/pq"
 )
 
-type Page struct {
-	Title string
-	Body  []byte
-}
-
-func (p *Page) save() error {
-	filename := p.Title + ".txt"
-	return ioutil.WriteFile(filename, p.Body, 0600)
-}
-
-func loadPage(title string) (*Page, error) {
-	filename := title + ".txt"
-	body, err := ioutil.ReadFile(filename)
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("step 1")
+	connStr := "user=postgres dbname=postgres password=postgres sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
-	return &Page{Title: title, Body: body}, nil
-}
 
-func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
+	fmt.Println("step 2")
+
+	rows, err := db.Query("SELECT 1")
 	if err != nil {
-		http.Redirect(w, r, "/edit/"+title, http.StatusFound)
-		return
+		panic(err)
 	}
-	renderTemplate(w, "view", p)
-}
-
-func editHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
-	if err != nil {
-		p = &Page{Title: title}
-	}
-	renderTemplate(w, "edit", p)
-}
-
-func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
-	body := r.FormValue("body")
-	p := &Page{Title: title, Body: []byte(body)}
-	err := p.save()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/view/"+title, http.StatusFound)
-}
-
-var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
-
-func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
-	err := templates.ExecuteTemplate(w, tmpl+".html", p)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
-
-func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := validPath.FindStringSubmatch(r.URL.Path)
-		if m == nil {
-			http.NotFound(w, r)
-			return
-		}
-		fn(w, r, m[2])
-	}
+	var (
+        n   int64
+    )
+	rows.Next()
+    if err := rows.Scan(&n); err != nil {
+        log.Fatal(err)
+    }
+    log.Printf("id %d has role\n", n)
 }
 
 func main() {
-	http.HandleFunc("/view/", makeHandler(viewHandler))
-	http.HandleFunc("/edit/", makeHandler(editHandler))
-	http.HandleFunc("/save/", makeHandler(saveHandler))
+	http.HandleFunc("/", indexHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
